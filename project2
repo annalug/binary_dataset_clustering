@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Siamese Network - Similaridade entre Datasets de Malware</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3a 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+        
+        .slide {
+            min-height: 100vh;
+            padding: 3rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 2px solid rgba(100, 255, 218, 0.2);
+        }
+        
+        .slide-number {
+            position: absolute;
+            top: 1.5rem;
+            right: 2rem;
+            font-size: 1rem;
+            color: rgba(100, 255, 218, 0.5);
+            font-weight: 600;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 2.8rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #64ffda, #00d9ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        h2 {
+            text-align: center;
+            font-size: 2rem;
+            color: #64ffda;
+            margin-bottom: 2rem;
+        }
+        
+        .subtitle {
+            text-align: center;
+            font-size: 1.3rem;
+            color: #8892b0;
+            margin-bottom: 3rem;
+        }
+        
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            padding: 2rem;
+            margin: 1rem auto;
+            max-width: 1200px;
+        }
+        
+        .content-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            border-radius: 16px;
+            padding: 2rem;
+            margin: 1rem auto;
+            max-width: 1000px;
+        }
+        
+        .highlight-box {
+            background: linear-gradient(135deg, rgba(100, 255, 218, 0.1), rgba(0, 217, 255, 0.05));
+            border-left: 4px solid #64ffda;
+            border-radius: 0 12px 12px 0;
+            padding: 1.5rem 2rem;
+            margin: 2rem auto;
+            max-width: 800px;
+        }
+        
+        .highlight-box p {
+            font-size: 1.2rem;
+            line-height: 1.8;
+            color: #b0b0b0;
+        }
+        
+        .highlight-box strong {
+            color: #64ffda;
+        }
+        
+        .two-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        
+        @media (max-width: 900px) {
+            .two-columns {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        
+        .card h3 {
+            color: #64ffda;
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .card p, .card li {
+            color: #a0a0a0;
+            line-height: 1.7;
+        }
+        
+        .card ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .card li {
+            padding: 0.3rem 0;
+            padding-left: 1.2rem;
+            position: relative;
+        }
+        
+        .card li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #64ffda;
+        }
+        
+        .emoji-title {
+            font-size: 2.5rem;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        
+        .formula {
+            font-family: 'Courier New', monospace;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.1rem;
+            color: #00d9ff;
+            margin: 1rem 0;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            max-width: 900px;
+            margin: 1rem auto;
+            border-collapse: collapse;
+        }
+        
+        .comparison-table th {
+            background: rgba(100, 255, 218, 0.2);
+            color: #64ffda;
+            padding: 1rem;
+            text-align: left;
+            font-size: 1.1rem;
+        }
+        
+        .comparison-table td {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #b0b0b0;
+        }
+        
+        .comparison-table tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .check { color: #6bcb77; }
+        .cross { color: #ff6b6b; }
+        
+        .step-flow {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin: 2rem 0;
+        }
+        
+        .step {
+            background: rgba(100, 255, 218, 0.1);
+            border: 2px solid rgba(100, 255, 218, 0.3);
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            text-align: center;
+            min-width: 150px;
+        }
+        
+        .step-number {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #64ffda;
+        }
+        
+        .step-label {
+            font-size: 0.9rem;
+            color: #a0a0a0;
+            margin-top: 0.3rem;
+        }
+        
+        .arrow {
+            font-size: 2rem;
+            color: #64ffda;
+        }
+        
+        .center-text {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SLIDE 1: Título -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">1</span>
+        <div class="emoji-title">🔬🧠</div>
+        <h1>Siamese Neural Network</h1>
+        <p class="subtitle">Medindo Similaridade entre Datasets de Malware Android</p>
+        
+        <div class="highlight-box">
+            <p><strong>Objetivo:</strong> Dado um dataset de malware, encontrar quais outros datasets são mais similares a ele usando embeddings aprendidos por uma rede neural.</p>
+        </div>
+        
+        <div class="step-flow">
+            <div class="step">
+                <div class="step-number">📁</div>
+                <div class="step-label">Datasets CSV</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-number">⚙️</div>
+                <div class="step-label">Padronização</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-number">🧠</div>
+                <div class="step-label">Rede Siamesa</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="step">
+                <div class="step-number">📊</div>
+                <div class="step-label">Ranking</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 2: O Problema -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">2</span>
+        <h2>🎯 O Problema</h2>
+        
+        <div class="mermaid">
+flowchart LR
+    subgraph DATASETS["📁 Coleção de Datasets"]
+        D1["Drebin<br/><small>5K × 2500</small>"]
+        D2["AndroZoo<br/><small>10K × 1800</small>"]
+        D3["AMD<br/><small>3K × 3000</small>"]
+        D4["Malgenome<br/><small>1K × 500</small>"]
+        D5["???<br/><small>Novo dataset</small>"]
+    end
+    
+    subgraph QUESTION["❓ Pergunta"]
+        Q["Com qual dataset<br/>o novo é mais<br/>parecido?"]
+    end
+    
+    D5 -.->|"?"| Q
+    D1 -.-> Q
+    D2 -.-> Q
+    D3 -.-> Q
+    D4 -.-> Q
+    
+    style DATASETS fill:#1a1a3a,stroke:#64ffda,color:#fff
+    style QUESTION fill:#1a1a3a,stroke:#ffd93d,color:#fff
+    style D5 fill:#2d3436,stroke:#ff6b6b,color:#fff
+        </div>
+        
+        <div class="two-columns">
+            <div class="card">
+                <h3>🚫 Desafios</h3>
+                <ul>
+                    <li>Datasets têm dimensões diferentes</li>
+                    <li>Features não são alinhadas</li>
+                    <li>Comparação direta impossível</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h3>✅ Solução</h3>
+                <ul>
+                    <li>Padronizar para mesmo tamanho</li>
+                    <li>Extrair "impressão digital" (embedding)</li>
+                    <li>Comparar embeddings</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 3: Pipeline Completo -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">3</span>
+        <h2>🔄 Pipeline Completo</h2>
+        
+        <div class="mermaid">
+flowchart LR
+    subgraph A["1️⃣ ENTRADA"]
+        CSV[("📄 CSVs<br/>Binários")]
+    end
+    
+    subgraph B["2️⃣ CARREGAR"]
+        LOAD["dataset_loader.py<br/><small>Separa X e y</small>"]
+    end
+    
+    subgraph C["3️⃣ PADRONIZAR"]
+        STD["standardizer.py<br/><small>(n,m) → (256,100,1)</small>"]
+    end
+    
+    subgraph D["4️⃣ EMBEDDING"]
+        SIA["siamese.py<br/><small>CNN Encoder</small>"]
+    end
+    
+    subgraph E["5️⃣ COMPARAR"]
+        RANK["ranking.py<br/><small>Cosine Similarity</small>"]
+    end
+    
+    subgraph F["6️⃣ RESULTADO"]
+        OUT[("📊 Ranking<br/>Similaridade")]
+    end
+    
+    CSV --> LOAD
+    LOAD -->|"List[array]"| STD
+    STD -->|"(256,100,1)"| SIA
+    SIA -->|"(128,)"| RANK
+    RANK --> OUT
+    
+    style A fill:#2d3436,stroke:#ff6b6b,color:#fff
+    style B fill:#2d3436,stroke:#ff6b6b,color:#fff
+    style C fill:#2d3436,stroke:#ffd93d,color:#fff
+    style D fill:#2d3436,stroke:#6bcb77,color:#fff
+    style E fill:#2d3436,stroke:#4d96ff,color:#fff
+    style F fill:#2d3436,stroke:#4d96ff,color:#fff
+        </div>
+        
+        <div class="formula">
+            CSV (n × m) → Padronizado (256 × 100 × 1) → Embedding (128) → Similaridade [0, 1]
+        </div>
+    </div>
+
+    <!-- SLIDE 4: Padronização -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">4</span>
+        <h2>⚙️ Padronização do Dataset</h2>
+        <p class="subtitle">Todos os datasets viram "imagens" de tamanho fixo</p>
+        
+        <div class="mermaid">
+flowchart TB
+    subgraph INPUT["📥 Dataset Original"]
+        A["(5000 amostras, 2500 features)<br/><small>Dimensões variáveis</small>"]
+    end
+    
+    subgraph SAMPLES["📏 1. Ajustar Amostras → 256"]
+        B1{"n > 256?"}
+        B2["✂️ Subamostragem<br/>aleatória"]
+        B3["📝 Padding<br/>com zeros"]
+        B1 -->|"Sim"| B2
+        B1 -->|"Não"| B3
+    end
+    
+    subgraph FEATURES["📐 2. Ajustar Features → 100"]
+        C1{"m > 100?"}
+        C2["🔬 PCA<br/>100 componentes"]
+        C3["📝 Padding<br/>com zeros"]
+        C1 -->|"Sim"| C2
+        C1 -->|"Não"| C3
+    end
+    
+    subgraph OUTPUT["📤 Dataset Padronizado"]
+        D["(256, 100, 1)<br/><small>Formato fixo tipo 'imagem'</small>"]
+    end
+    
+    A --> B1
+    B2 --> C1
+    B3 --> C1
+    C2 --> D
+    C3 --> D
+    
+    style INPUT fill:#1a1a3a,stroke:#ff6b6b,color:#fff
+    style SAMPLES fill:#1a1a3a,stroke:#ffd93d,color:#fff
+    style FEATURES fill:#1a1a3a,stroke:#ffd93d,color:#fff
+    style OUTPUT fill:#1a1a3a,stroke:#6bcb77,color:#fff
+        </div>
+        
+        <div class="highlight-box">
+            <p><strong>Por que (256, 100, 1)?</strong> A CNN precisa de input fixo. O dataset vira uma "imagem" 256×100 em grayscale, onde cada pixel é 0 ou 1.</p>
+        </div>
+    </div>
+
+    <!-- SLIDE 5: Dataset como Imagem -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">5</span>
+        <h2>🖼️ Dataset Tratado como Imagem</h2>
+        
+        <div class="mermaid">
+flowchart TB
+    subgraph MATRIX["📊 Matriz Binária = Imagem 2D"]
+        direction TB
+        M["<br/>      ← 100 features (colunas) →<br/>    ┌────────────────────────────┐<br/>  ↑ │ 0 1 0 1 1 0 0 1 0 1 ... │<br/>  │ │ 1 0 0 1 0 0 1 0 1 0 ... │<br/>256 │ 0 0 1 1 1 0 0 1 0 0 ... │<br/>  │ │ 1 1 0 0 1 0 1 1 0 1 ... │<br/>  ↓ │ ...                      │<br/>    └────────────────────────────┘<br/>"]
+    end
+    
+    subgraph CNN["🧠 CNN Processa"]
+        F1["Filtro 3×3<br/>detecta padrões<br/>locais"]
+        F2["Padrões entre<br/>features vizinhas"]
+        F3["Padrões entre<br/>amostras vizinhas"]
+    end
+    
+    MATRIX --> CNN
+    
+    style MATRIX fill:#1a1a3a,stroke:#64ffda,color:#fff
+    style CNN fill:#1a1a3a,stroke:#6bcb77,color:#fff
+        </div>
+        
+        <div class="two-columns">
+            <div class="card">
+                <h3>📏 Linhas (256)</h3>
+                <p>Cada linha = 1 amostra do dataset<br/>CNN captura padrões entre amostras vizinhas</p>
+            </div>
+            <div class="card">
+                <h3>📐 Colunas (100)</h3>
+                <p>Cada coluna = 1 feature<br/>CNN captura correlações entre features</p>
+            </div>
+        </div>
+        
+        <div class="highlight-box">
+            <p><strong>A CNN aprende:</strong> densidade de 1s, co-ocorrência de features, estrutura espacial dos dados binários — tudo isso vira um vetor de 128 números.</p>
+        </div>
+    </div>
+
+    <!-- SLIDE 6: Arquitetura Siamesa -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">6</span>
+        <h2>🧠 Arquitetura da Rede Siamesa</h2>
+        <p class="subtitle">Duas CNNs idênticas com pesos compartilhados</p>
+        
+        <div class="mermaid">
+flowchart TB
+    subgraph INPUTS["📥 Par de Datasets"]
+        DL["Dataset A<br/>(256, 100, 1)"]
+        DR["Dataset B<br/>(256, 100, 1)"]
+    end
+    
+    subgraph ENCODER["🔄 Encoder CNN (Compartilhado)"]
+        E1["Conv2D 32 → BatchNorm → MaxPool"]
+        E2["Conv2D 64 → BatchNorm → MaxPool"]
+        E3["Conv2D 128 → BatchNorm → MaxPool"]
+        E4["Flatten → Dense 256"]
+        E5["Dense 128 → L2 Normalize"]
+        E1 --> E2 --> E3 --> E4 --> E5
+    end
+    
+    subgraph EMBEDDINGS["🎯 Embeddings"]
+        EL["Embedding A<br/>(128,)"]
+        ER["Embedding B<br/>(128,)"]
+    end
+    
+    subgraph COMPARE["📏 Comparação"]
+        DIST["Distância<br/>Euclidiana"]
+        SIM["Sigmoid<br/>→ [0, 1]"]
+        DIST --> SIM
+    end
+    
+    subgraph OUTPUT["📊 Resultado"]
+        OUT["Similaridade<br/>0.85 = Muito similar<br/>0.15 = Muito diferente"]
+    end
+    
+    DL --> ENCODER
+    DR --> ENCODER
+    ENCODER --> EL
+    ENCODER --> ER
+    EL --> DIST
+    ER --> DIST
+    SIM --> OUT
+    
+    style INPUTS fill:#1a1a3a,stroke:#ff6b6b,color:#fff
+    style ENCODER fill:#1a1a3a,stroke:#ffd93d,color:#fff
+    style EMBEDDINGS fill:#1a1a3a,stroke:#6bcb77,color:#fff
+    style COMPARE fill:#1a1a3a,stroke:#4d96ff,color:#fff
+    style OUTPUT fill:#1a1a3a,stroke:#4d96ff,color:#fff
+        </div>
+    </div>
+
+    <!-- SLIDE 7: O que É e o que NÃO É -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">7</span>
+        <h2>⚠️ O que a Rede FAZ e NÃO FAZ</h2>
+        
+        <div class="mermaid">
+flowchart LR
+    subgraph FAZ["✅ O QUE FAZ"]
+        F1["Compara<br/>DATASETS<br/>inteiros"]
+        F2["Mede<br/>similaridade<br/>estrutural"]
+        F3["Gera<br/>embeddings<br/>por dataset"]
+    end
+    
+    subgraph NAOFAZ["❌ O QUE NÃO FAZ"]
+        N1["Classifica<br/>malware vs<br/>benigno"]
+        N2["Compara<br/>amostras<br/>linha a linha"]
+        N3["Usa a coluna<br/>'class' dos<br/>dados"]
+    end
+    
+    style FAZ fill:#1a3a1a,stroke:#6bcb77,color:#fff
+    style NAOFAZ fill:#3a1a1a,stroke:#ff6b6b,color:#fff
+        </div>
+        
+        <table class="comparison-table">
+            <tr>
+                <th>Pergunta</th>
+                <th>Responde?</th>
+            </tr>
+            <tr>
+                <td>"O dataset Drebin é similar ao AndroZoo?"</td>
+                <td><span class="check">✅ Sim</span></td>
+            </tr>
+            <tr>
+                <td>"Qual dataset é mais parecido com meu dataset novo?"</td>
+                <td><span class="check">✅ Sim</span></td>
+            </tr>
+            <tr>
+                <td>"Essa amostra específica é malware?"</td>
+                <td><span class="cross">❌ Não</span></td>
+            </tr>
+            <tr>
+                <td>"A linha 42 do dataset A é similar à linha 100 do dataset B?"</td>
+                <td><span class="cross">❌ Não</span></td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- SLIDE 8: Treinamento -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">8</span>
+        <h2>🏋️ Como Treinar a Rede</h2>
+        
+        <div class="mermaid">
+flowchart TB
+    subgraph PAIRS["📦 Criação de Pares"]
+        P1["(Drebin, Drebin_v2)<br/>Label: 1 (similar)"]
+        P2["(Drebin, AndroZoo)<br/>Label: 0 (diferente)"]
+        P3["(AMD, AMD_subset)<br/>Label: 1 (similar)"]
+        P4["(AMD, Malgenome)<br/>Label: 0 (diferente)"]
+    end
+    
+    subgraph TRAIN["🔄 Treinamento"]
+        T1["Rede processa par"]
+        T2["Calcula similaridade"]
+        T3["Compara com label"]
+        T4["Ajusta pesos"]
+        T1 --> T2 --> T3 --> T4
+        T4 -.->|"próximo par"| T1
+    end
+    
+    subgraph RESULT["🎯 Resultado"]
+        R1["Datasets similares<br/>→ embeddings próximos"]
+        R2["Datasets diferentes<br/>→ embeddings distantes"]
+    end
+    
+    PAIRS --> TRAIN
+    TRAIN --> RESULT
+    
+    style PAIRS fill:#1a1a3a,stroke:#ffd93d,color:#fff
+    style TRAIN fill:#1a1a3a,stroke:#6bcb77,color:#fff
+    style RESULT fill:#1a1a3a,stroke:#4d96ff,color:#fff
+        </div>
+        
+        <div class="highlight-box">
+            <p><strong>Loss:</strong> Binary Cross-Entropy<br/>
+            <strong>Objetivo:</strong> Minimizar distância entre pares similares, maximizar entre diferentes.</p>
+        </div>
+    </div>
+
+    <!-- SLIDE 9: Ranking Final -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">9</span>
+        <h2>📊 Ranking de Similaridade</h2>
+        
+        <div class="mermaid">
+flowchart LR
+    subgraph QUERY["🔍 Dataset Query"]
+        Q["Novo_Dataset<br/>embedding: [0.2, -0.5, ...]"]
+    end
+    
+    subgraph DB["📚 Base de Dados"]
+        D1["Drebin<br/>[0.3, -0.4, ...]"]
+        D2["AndroZoo<br/>[-0.1, 0.8, ...]"]
+        D3["AMD<br/>[0.2, -0.6, ...]"]
+        D4["Malgenome<br/>[0.7, 0.1, ...]"]
+    end
+    
+    subgraph CALC["📐 Cosine Similarity"]
+        C["Calcula distância<br/>para todos"]
+    end
+    
+    subgraph RESULT["🏆 Ranking"]
+        R["1. AMD → 0.95<br/>2. Drebin → 0.87<br/>3. AndroZoo → 0.45<br/>4. Malgenome → 0.23"]
+    end
+    
+    Q --> C
+    D1 --> C
+    D2 --> C
+    D3 --> C
+    D4 --> C
+    C --> RESULT
+    
+    style QUERY fill:#1a1a3a,stroke:#ff6b6b,color:#fff
+    style DB fill:#1a1a3a,stroke:#ffd93d,color:#fff
+    style CALC fill:#1a1a3a,stroke:#6bcb77,color:#fff
+    style RESULT fill:#1a1a3a,stroke:#4d96ff,color:#fff
+        </div>
+        
+        <div class="formula">
+            cosine_similarity(query, dataset) = (query · dataset) / (||query|| × ||dataset||)
+        </div>
+    </div>
+
+    <!-- SLIDE 10: Resumo -->
+    <div class="slide" style="position: relative;">
+        <span class="slide-number">10</span>
+        <h2>📋 Resumo</h2>
+        
+        <div class="mermaid">
+flowchart TB
+    subgraph SUMMARY["🎯 Pipeline Completo"]
+        S1["📄 CSV (n × m)<br/><small>Dados binários brutos</small>"]
+        S2["📐 Padronizado (256 × 100 × 1)<br/><small>Tratado como imagem</small>"]
+        S3["🧠 CNN Encoder<br/><small>Extrai padrões</small>"]
+        S4["🎯 Embedding (128)<br/><small>Impressão digital do dataset</small>"]
+        S5["📊 Similaridade [0,1]<br/><small>Ranking final</small>"]
+        
+        S1 -->|"Padronização"| S2
+        S2 -->|"Convolução"| S3
+        S3 -->|"Dense + L2"| S4
+        S4 -->|"Cosine"| S5
+    end
+    
+    style SUMMARY fill:#1a1a3a,stroke:#64ffda,color:#fff
+        </div>
+        
+        <div class="two-columns">
+            <div class="card">
+                <h3>🔑 Pontos-Chave</h3>
+                <ul>
+                    <li>Dataset inteiro → 1 embedding</li>
+                    <li>CNN trata dados como imagem 2D</li>
+                    <li>Pesos compartilhados garantem comparação justa</li>
+                    <li>Labels de classe NÃO são usados</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h3>💡 Aplicações</h3>
+                <ul>
+                    <li>Identificar origem de datasets</li>
+                    <li>Agrupar datasets similares</li>
+                    <li>Transfer learning entre datasets</li>
+                    <li>Detectar datasets duplicados</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</body>
+<script>
+    mermaid.initialize({
+        startOnLoad: true,
+        theme: 'dark',
+        themeVariables: {
+            primaryColor: '#64ffda',
+            primaryTextColor: '#fff',
+            primaryBorderColor: '#64ffda',
+            lineColor: '#8892b0',
+            secondaryColor: '#2d3436',
+            tertiaryColor: '#1a1a2e',
+            background: '#1a1a3a',
+            mainBkg: '#2d3436',
+            nodeBorder: '#64ffda',
+            clusterBkg: '#1a1a3a',
+            clusterBorder: '#64ffda',
+            titleColor: '#64ffda',
+            edgeLabelBackground: '#1a1a3a',
+            fontFamily: 'Segoe UI, system-ui, sans-serif'
+        },
+        flowchart: {
+            useMaxWidth: true,
+            htmlLabels: true,
+            curve: 'basis',
+            padding: 20
+        }
+    });
+</script>
+</html>

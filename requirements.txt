@@ -1,0 +1,12 @@
+# Dependências Mínimas
+tensorflow>=2.10.0
+numpy>=1.23.0
+scikit-learn>=1.2.0
+
+# Opcionais (recomendados)
+pandas>=1.5.0
+matplotlib>=3.6.0
+scipy>=1.9.0
+
+# Para extração de features de APKs (opcional)
+# androguard>=3.4.0
