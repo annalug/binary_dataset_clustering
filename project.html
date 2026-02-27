@@ -1,421 +1,208 @@
+--- START OF FILE project.html ---
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arquitetura - Siamese Network para Similaridade de Datasets</title>
+    <title>Framework de Similaridade Estrutural de Datasets</title>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            min-height: 100vh;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
             padding: 2rem;
-            color: #e0e0e0;
         }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        
-        h1 {
-            text-align: center;
-            color: #00d9ff;
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-            text-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
-        }
-        
-        .subtitle {
-            text-align: center;
-            color: #8892b0;
-            font-size: 1rem;
-            margin-bottom: 2rem;
-        }
-        
-        .diagram-section {
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 16px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-        }
-        
-        .diagram-section h2 {
-            color: #64ffda;
-            font-size: 1.3rem;
-            margin-bottom: 1.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid rgba(100, 255, 218, 0.3);
-        }
-        
-        .mermaid {
-            display: flex;
-            justify-content: center;
-            background: rgba(0, 0, 0, 0.2);
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 3rem; }
+        h1 { color: #58a6ff; font-size: 2.5rem; margin-bottom: 0.5rem; }
+        .tagline { color: #8b949e; font-size: 1.1rem; }
+
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
             border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        h2 { color: #79c0ff; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+        .card {
+            background: #0d1117;
+            border: 1px solid #30363d;
             padding: 1.5rem;
+            border-radius: 8px;
+            transition: transform 0.2s;
         }
-        
-        .legend {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1rem;
-            margin-top: 2rem;
-        }
-        
-        .legend-item {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 1.2rem;
-            border-left: 4px solid;
-        }
-        
-        .legend-item.loader { border-color: #ff6b6b; }
-        .legend-item.standardizer { border-color: #ffd93d; }
-        .legend-item.siamese { border-color: #6bcb77; }
-        .legend-item.ranking { border-color: #4d96ff; }
-        
-        .legend-item h3 {
-            font-size: 1rem;
-            margin-bottom: 0.5rem;
-        }
-        
-        .legend-item.loader h3 { color: #ff6b6b; }
-        .legend-item.standardizer h3 { color: #ffd93d; }
-        .legend-item.siamese h3 { color: #6bcb77; }
-        .legend-item.ranking h3 { color: #4d96ff; }
-        
-        .legend-item p {
-            font-size: 0.9rem;
-            color: #a0a0a0;
-            line-height: 1.5;
-        }
-        
-        .legend-item code {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 0.15rem 0.4rem;
-            border-radius: 4px;
+        .card:hover { transform: translateY(-5px); border-color: #58a6ff; }
+        .card h3 { color: #aff5b4; margin-bottom: 0.75rem; }
+
+        .mermaid { background: #0d1117; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+
+        .tech-specs { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 1rem; }
+        .tech-specs li {
+            background: #1f6feb;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
             font-size: 0.8rem;
-            color: #00d9ff;
+            font-weight: bold;
         }
-        
-        .architecture-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-            margin-top: 1rem;
+
+        .version-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            margin-bottom: 10px;
         }
-        
-        @media (max-width: 900px) {
-            .architecture-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-        
-        .info-box {
-            background: linear-gradient(135deg, rgba(100, 255, 218, 0.1), rgba(0, 217, 255, 0.05));
-            border: 1px solid rgba(100, 255, 218, 0.3);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-top: 1.5rem;
-        }
-        
-        .info-box h3 {
-            color: #64ffda;
-            margin-bottom: 1rem;
-            font-size: 1.1rem;
-        }
-        
-        .info-box ul {
-            list-style: none;
-            padding-left: 0;
-        }
-        
-        .info-box li {
-            padding: 0.4rem 0;
-            padding-left: 1.5rem;
-            position: relative;
-            color: #b0b0b0;
-        }
-        
-        .info-box li::before {
-            content: "▸";
-            position: absolute;
-            left: 0;
-            color: #64ffda;
-        }
+        .v-siamese { background: #238636; color: white; }
+        .v-a { background: #8957e5; color: white; }
+        .v-b { background: #d29922; color: white; }
+
+        code { background: #21262d; padding: 2px 5px; border-radius: 4px; color: #ff7b72; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔬 Siamese Network para Similaridade de Datasets</h1>
-        <p class="subtitle">Sistema de ranking de similaridade entre datasets de malware Android</p>
-        
-        <!-- Pipeline Principal -->
-        <div class="diagram-section">
-            <h2>📊 Pipeline Principal</h2>
+        <header>
+            <h1>🔬 Malware Dataset Intelligence Framework</h1>
+            <p class="tagline">Análise de similaridade, ranking e clustering de datasets Android via Deep Learning e Estatística</p>
+        </header>
+
+        <!-- Visão Geral -->
+        <div class="section">
+            <h2>🌐 Visão Geral do Ecossistema</h2>
+            <p>Este framework processa datasets de malware binários para identificar relações de proximidade estrutural através de três motores de inteligência distintos.</p>
+            <div class="mermaid">
+graph TD
+    DATA[(Datasets CSV)] --> LOAD[Loader & Cleaner]
+    LOAD --> STD[Independent Standardizer]
+
+    subgraph ENGINES [Motores de Embedding]
+        STD --> V_S[<b>Pipeline Siamese</b><br/>CNN + Contrastive Loss]
+        STD --> V_A[<b>Versão A</b><br/>Stat Features + TF-IDF Semantic]
+        STD --> V_B[<b>Versão B</b><br/>Autoencoder Latent Space]
+    end
+
+    ENGINES --> ANALYZE{Análise Central}
+    ANALYZE --> RANK[Ranking de Proximidade]
+    ANALYZE --> CLUST[Clustering Hierárquico/DBSCAN]
+    ANALYZE --> VIS[Visualização t-SNE / Heatmaps]
+            </div>
+        </div>
+
+        <!-- Abordagens Técnicas -->
+        <div class="section">
+            <h2>🛠️ Estratégias de Embedding</h2>
+            <div class="grid">
+                <!-- Siamese -->
+                <div class="card">
+                    <span class="version-badge v-siamese">Siamese Pipeline</span>
+                    <h3>Deep Neural Comparison</h3>
+                    <p>Aprende a relação de similaridade através de pares de datasets usando uma CNN com pesos compartilhados.</p>
+                    <ul class="tech-specs">
+                        <li>Contrastive Loss</li>
+                        <li>128-dim Embedding</li>
+                        <li>L2 Normalization</li>
+                    </ul>
+                </div>
+
+                <!-- Versão A -->
+                <div class="card">
+                    <span class="version-badge v-a">Versão A</span>
+                    <h3>Static & Semantic</h3>
+                    <p>Abordagem determinística que combina a estatística dos dados (skewness, densidade) com a semântica dos nomes das colunas via TF-IDF.</p>
+                    <ul class="tech-specs">
+                        <li>Deterministic</li>
+                        <li>TF-IDF + SVD</li>
+                        <li>Stat Moments</li>
+                    </ul>
+                </div>
+
+                <!-- Versão B -->
+                <div class="card">
+                    <span class="version-badge v-b">Versão B</span>
+                    <h3>Unsupervised Latent</h3>
+                    <p>Utiliza um Autoencoder para comprimir as características em um espaço latente de 32 dimensões, capturando a essência da reconstrução.</p>
+                    <ul class="tech-specs">
+                        <li>Autoencoder</li>
+                        <li>MSE Loss</li>
+                        <li>Latent Compressing</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- O Standardizer -->
+        <div class="section">
+            <h2>⚙️ Padronização de Dados (Standardizer)</h2>
+            <p>Garante que datasets de diferentes origens e tamanhos possam ser comparados em uma mesma escala métrica.</p>
             <div class="mermaid">
 flowchart LR
-    subgraph INPUT["📁 Entrada"]
-        A[("./data/<br>CSVs")]
-    end
-    
-    subgraph LOAD["🔄 Carregamento"]
-        B["dataset_loader.py<br><small>load_datasets_from_folder()</small>"]
-    end
-    
-    subgraph STANDARD["⚙️ Padronização"]
-        C["standardizer.py<br><small>DatasetStandardizer</small>"]
-        C1["PCA Local"]
-        C2["Pad/Sample"]
-    end
-    
-    subgraph SIAMESE["🧠 Rede Siamesa"]
-        D["siamese.py<br><small>SiameseNet</small>"]
-        D1["Encoder CNN"]
-        D2["Embeddings<br>128-dim"]
-    end
-    
-    subgraph RANK["📈 Ranking"]
-        E["ranking.py<br><small>rank_similar_datasets()</small>"]
-        E1["Cosine<br>Similarity"]
-    end
-    
-    subgraph OUTPUT["🎯 Saída"]
-        F[("Ranking<br>Ordenado")]
-    end
-    
-    A --> B
-    B -->|"List[np.ndarray]<br>(n, features)"| C
-    C --> C1 & C2
-    C1 & C2 -->|"(256, 100, 1)"| D
-    D --> D1 --> D2
-    D2 -->|"(128,)"| E
-    E --> E1
-    E1 --> F
-    
-    style INPUT fill:#2d3436,stroke:#ff6b6b,color:#fff
-    style LOAD fill:#2d3436,stroke:#ff6b6b,color:#fff
-    style STANDARD fill:#2d3436,stroke:#ffd93d,color:#fff
-    style SIAMESE fill:#2d3436,stroke:#6bcb77,color:#fff
-    style RANK fill:#2d3436,stroke:#4d96ff,color:#fff
-    style OUTPUT fill:#2d3436,stroke:#4d96ff,color:#fff
+    IN[CSV Bruto] --> CLIP[Clip 0,1]
+    CLIP --> S_PAD[Sample/Pad Amostras<br/>Target: 256]
+    S_PAD --> F_RED[Redução de Features<br/>PCA Local ou Truncamento]
+    F_RED --> CONT[<b>Valores Contínuos</b><br/>Preservação de Info]
+    CONT --> OUT[Shape: 256, 100, 1]
+
+    style CONT fill:#005cc5,stroke:#fff,color:#fff
+            </div>
+            <div style="margin-top: 1rem; background: #0d1117; padding: 1rem; border-radius: 8px; border-left: 4px solid #f85149;">
+                <strong>Nota Técnica:</strong> O PCA agora opera de forma independente por dataset e os valores resultantes são mantidos <code>float32</code>. Não há mais re-binarização, o que permite à CNN aprender gradientes mais sutis de densidade de features.
             </div>
         </div>
-        
-        <!-- Arquitetura da CNN -->
-        <div class="diagram-section">
-            <h2>🧠 Arquitetura do Encoder CNN (Default)</h2>
-            <div class="architecture-grid">
-                <div class="mermaid">
-flowchart TB
-    subgraph ENCODER["Encoder Compartilhado"]
-        I["Input<br>(256, 100, 1)"] --> B1
-        
-        subgraph B1["Bloco 1"]
-            C1["Conv2D 32<br>3×3, ReLU"]
-            BN1["BatchNorm"]
-            MP1["MaxPool 2×2"]
-            DR1["Dropout 0.25"]
-            C1 --> BN1 --> MP1 --> DR1
-        end
-        
-        B1 --> B2
-        
-        subgraph B2["Bloco 2"]
-            C2["Conv2D 64<br>3×3, ReLU"]
-            BN2["BatchNorm"]
-            MP2["MaxPool 2×2"]
-            DR2["Dropout 0.25"]
-            C2 --> BN2 --> MP2 --> DR2
-        end
-        
-        B2 --> B3
-        
-        subgraph B3["Bloco 3"]
-            C3["Conv2D 128<br>3×3, ReLU"]
-            BN3["BatchNorm"]
-            MP3["MaxPool 2×2"]
-            DR3["Dropout 0.3"]
-            C3 --> BN3 --> MP3 --> DR3
-        end
-        
-        B3 --> FL["Flatten"]
-        FL --> D1["Dense 256<br>ReLU"]
-        D1 --> BN4["BatchNorm"]
-        BN4 --> DR4["Dropout 0.4"]
-        DR4 --> EMB["Dense 128<br>Embedding"]
-        EMB --> L2["L2 Normalize"]
-    end
-    
-    style ENCODER fill:#1a1a2e,stroke:#6bcb77,color:#fff
-    style B1 fill:#2d3436,stroke:#64ffda,color:#fff
-    style B2 fill:#2d3436,stroke:#64ffda,color:#fff
-    style B3 fill:#2d3436,stroke:#64ffda,color:#fff
+
+        <!-- Inteligência de Agrupamento -->
+        <div class="section">
+            <h2>📈 Clustering & Seleção de K</h2>
+            <p>O framework não apenas agrupa, mas decide automaticamente a melhor organização dos dados.</p>
+            <div class="grid">
+                <div class="card">
+                    <h3>Seleção Automática</h3>
+                    <p>Usa <code>Silhouette Score</code>, <code>Davies-Bouldin</code> e o <code>Método do Cotovelo</code> (Inércia) para determinar o número ideal de clusters sem intervenção humana.</p>
                 </div>
-                
-                <div class="mermaid">
-flowchart TB
-    subgraph SIAMESE["Rede Siamesa Completa"]
-        DL["Dataset Left<br>(256, 100, 1)"]
-        DR["Dataset Right<br>(256, 100, 1)"]
-        
-        DL --> ENC1["Encoder<br>(compartilhado)"]
-        DR --> ENC2["Encoder<br>(compartilhado)"]
-        
-        ENC1 --> EL["Embedding L<br>(128,)"]
-        ENC2 --> ER["Embedding R<br>(128,)"]
-        
-        EL --> DIST
-        ER --> DIST
-        
-        DIST["Distância<br>Euclidiana"]
-        DIST --> SIM["Dense 1<br>Sigmoid"]
-        SIM --> OUT["Similaridade<br>[0, 1]"]
-    end
-    
-    style SIAMESE fill:#1a1a2e,stroke:#6bcb77,color:#fff
-    style ENC1 fill:#2d3436,stroke:#ffd93d,color:#fff
-    style ENC2 fill:#2d3436,stroke:#ffd93d,color:#fff
+                <div class="card">
+                    <h3>Métricas de Validação</h3>
+                    <p>Compara os resultados automáticos com <code>Business Groups</code> (se fornecidos) usando <b>ARI (Adjusted Rand Index)</b> e <b>NMI</b>.</p>
                 </div>
             </div>
         </div>
-        
-        <!-- Processo de Padronização -->
-        <div class="diagram-section">
-            <h2>⚙️ Processo de Padronização (DatasetStandardizer)</h2>
-            <div class="mermaid">
-flowchart LR
-    subgraph INPUT["Dataset Original"]
-        A["(n_samples, n_features)<br>Ex: (5000, 2500)"]
-    end
-    
-    subgraph SAMPLES["1. Padroniza Amostras"]
-        B1{"n > 256?"}
-        B2["Subamostra<br>aleatória"]
-        B3["Padding<br>com zeros"]
-        B1 -->|Sim| B2
-        B1 -->|Não| B3
-    end
-    
-    subgraph FEATURES["2. Padroniza Features"]
-        C1{"n > 100?"}
-        C2["PCA Local<br>100 componentes"]
-        C3["Padding<br>com zeros"]
-        C1 -->|Sim| C2
-        C1 -->|Não| C3
-        C2 --> C4["Re-binariza<br>(> 0.5)"]
-    end
-    
-    subgraph OUTPUT["Dataset Padronizado"]
-        D["(256, 100, 1)"]
-    end
-    
-    A --> B1
-    B2 --> C1
-    B3 --> C1
-    C3 --> D
-    C4 --> D
-    
-    style INPUT fill:#2d3436,stroke:#ff6b6b,color:#fff
-    style SAMPLES fill:#2d3436,stroke:#ffd93d,color:#fff
-    style FEATURES fill:#2d3436,stroke:#ffd93d,color:#fff
-    style OUTPUT fill:#2d3436,stroke:#6bcb77,color:#fff
-            </div>
-            
-            <div class="info-box">
-                <h3>💡 Por que padronização independente?</h3>
-                <ul>
-                    <li>Cada dataset representa uma "família" ou configuração de malware diferente</li>
-                    <li>PCA compartilhado distorceria as características individuais de cada dataset</li>
-                    <li>A similaridade deve ser entre as estruturas originais, não artefatos de preprocessamento</li>
-                    <li>Mantém a semântica dos dados binários após transformação</li>
-                </ul>
-            </div>
-        </div>
-        
-        <!-- Legenda dos Módulos -->
-        <div class="diagram-section">
-            <h2>📦 Descrição dos Módulos</h2>
-            <div class="legend">
-                <div class="legend-item loader">
-                    <h3>dataset_loader.py</h3>
-                    <p>Carrega CSVs binários de uma pasta, separando features <code>X</code> e rótulos <code>y</code>. Garante binaridade com <code>np.clip(0,1)</code>.</p>
+
+        <!-- Arquitetura de Arquivos -->
+        <div class="section">
+            <h2>📁 Estrutura de Módulos</h2>
+            <div class="grid">
+                <div>
+                    <h3>Scripts de Execução</h3>
+                    <ul>
+                        <li><code>run_ranking.py</code>: Orquestrador do pipeline Siamese.</li>
+                        <li><code>version_a_direct.py</code>: Execução da lógica estatística.</li>
+                        <li><code>version_b_autoencoder.py</code>: Pipeline não-supervisionado.</li>
+                    </ul>
                 </div>
-                
-                <div class="legend-item standardizer">
-                    <h3>standardizer.py</h3>
-                    <p>Normaliza datasets para shape fixo <code>(256, 100, 1)</code>. Usa PCA local independente por dataset para manter características únicas.</p>
+                <div>
+                    <h3>Core Engine</h3>
+                    <ul>
+                        <li><code>siamese.py</code>: Custom Layers e Contrastive Loss.</li>
+                        <li><code>cluster_selection.py</code>: Lógica de decisão de K.</li>
+                        <li><code>ranking.py</code>: Motores de distância (Cosine/Euclidean).</li>
+                    </ul>
                 </div>
-                
-                <div class="legend-item siamese">
-                    <h3>siamese.py</h3>
-                    <p>Rede Siamesa com CNN compartilhado. Gera embeddings de 128-dim normalizados L2. Treina com pares similar/diferente.</p>
-                </div>
-                
-                <div class="legend-item ranking">
-                    <h3>ranking.py</h3>
-                    <p>Calcula similaridade de cosseno entre embeddings e retorna ranking ordenado por proximidade ao dataset query.</p>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Fluxo de Dados -->
-        <div class="diagram-section">
-            <h2>🔄 Transformação de Dados</h2>
-            <div class="mermaid">
-flowchart TB
-    subgraph SHAPES["Transformação de Shapes"]
-        S1["📄 CSV Raw<br><small>(variável × variável)</small>"]
-        S2["📊 Loaded<br><small>(n_samples, n_features)</small>"]
-        S3["📐 Standardized<br><small>(256, 100, 1)</small>"]
-        S4["🎯 Embedding<br><small>(128,)</small>"]
-        S5["📈 Similarity<br><small>float [0,1]</small>"]
-        
-        S1 -->|"pd.read_csv()"| S2
-        S2 -->|"fit_transform()"| S3
-        S3 -->|"get_embedding()"| S4
-        S4 -->|"cosine_similarity()"| S5
-    end
-    
-    style SHAPES fill:#1a1a2e,stroke:#64ffda,color:#fff
             </div>
         </div>
     </div>
-    
+
     <script>
         mermaid.initialize({
             startOnLoad: true,
             theme: 'dark',
-            themeVariables: {
-                primaryColor: '#64ffda',
-                primaryTextColor: '#fff',
-                primaryBorderColor: '#64ffda',
-                lineColor: '#8892b0',
-                secondaryColor: '#2d3436',
-                tertiaryColor: '#1a1a2e',
-                background: '#1a1a2e',
-                mainBkg: '#2d3436',
-                nodeBorder: '#64ffda',
-                clusterBkg: '#16213e',
-                clusterBorder: '#64ffda',
-                titleColor: '#64ffda',
-                edgeLabelBackground: '#1a1a2e'
-            },
-            flowchart: {
-                useMaxWidth: true,
-                htmlLabels: true,
-                curve: 'basis'
-            }
+            securityLevel: 'loose',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
         });
     </script>
 </body>

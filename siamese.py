@@ -1,373 +1,403 @@
 """
-Rede Neural Siamesa - Versão Otimizada
-Comparação de similaridade entre datasets de malware Android
+siamese.py — Rede Neural Siamesa para comparação de datasets de malware Android
+
+Correções aplicadas:
+  - Removidas layers.Lambda (causavam falha ao salvar/carregar o modelo).
+    Substituídas por:
+      • L2-normalization → layers.UnitNormalization (Keras nativo)
+      • Distância euclidiana → camada customizada EuclideanDistance
+        (subclasse de layers.Layer, serializável)
+  - Loss substituída por Contrastive Loss (mais adequada para siamese
+    com distância euclidiana e margem configurável via CFG)
+  - Hiperparâmetros lidos de CFG; ainda aceita override no __init__
+  - ModelCheckpoint salva em CFG.paths.models/
 """
 
+import os
+import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, Model, optimizers, callbacks
-import numpy as np
 from typing import Tuple, Optional, List
-import warnings
 
-warnings.filterwarnings('ignore')
+from config import CFG, SiameseConfig
 
+
+# ============================================================================
+# CAMADA CUSTOMIZADA — distância euclidiana serializável
+# ============================================================================
+
+class EuclideanDistance(layers.Layer):
+    """
+    Calcula a distância euclidiana entre dois vetores de embedding.
+
+    Entrada : [emb_left (B, D), emb_right (B, D)]
+    Saída   : distância (B, 1)
+
+    Usa subclasse de Layer em vez de Lambda para garantir
+    serialização correta ao salvar/carregar o modelo.
+    """
+
+    def call(self, inputs):
+        left, right = inputs
+        sq_diff = tf.math.squared_difference(left, right)      # (B, D)
+        sum_sq  = tf.reduce_sum(sq_diff, axis=1, keepdims=True)  # (B, 1)
+        return tf.sqrt(tf.maximum(sum_sq, 1e-12))              # evita sqrt(0)
+
+    def get_config(self):
+        return super().get_config()
+
+
+# ============================================================================
+# LOSS CONTRASTIVA
+# ============================================================================
+
+def contrastive_loss(margin: float = 1.0):
+    """
+    Contrastive Loss (Hadsell et al., 2006).
+
+    Para pares similares   (y=1): loss = dist²
+    Para pares diferentes  (y=0): loss = max(0, margin − dist)²
+
+    Args:
+        margin: Margem mínima entre pares diferentes.
+
+    Returns:
+        Função de loss compatível com model.compile(loss=...).
+    """
+    def loss_fn(y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        dist   = tf.squeeze(y_pred, axis=-1)      # (B,)
+
+        similar_loss   = y_true * tf.square(dist)
+        different_loss = (1.0 - y_true) * tf.square(tf.maximum(margin - dist, 0.0))
+
+        return tf.reduce_mean(0.5 * (similar_loss + different_loss))
+
+    loss_fn.__name__ = f"contrastive_loss_m{margin}"
+    return loss_fn
+
+
+# ============================================================================
+# REDE SIAMESA
+# ============================================================================
 
 class SiameseNet:
     """
-    Rede Siamesa com CNN para comparar datasets binários
+    Rede Siamesa com encoder CNN compartilhado.
 
     Arquitetura:
-    - Encoder CNN compartilhado
-    - Embedding normalizado L2
-    - Distância euclidiana
-    - Output: similaridade [0, 1]
+      Encoder CNN  →  Dense(embedding_dim)  →  UnitNormalization (L2)
+      Duas cópias com pesos compartilhados
+      EuclideanDistance entre os dois embeddings
+      Saída: distância escalar (0 = idênticos)
+
+    Loss: Contrastive Loss com margem configurável
     """
 
-    def __init__(
-            self,
-            input_shape: Tuple[int, int, int] = (256, 100, 1),
-            embedding_dim: int = 128,
-            learning_rate: float = 0.0001,
-            architecture: str = 'default'
-    ):
+    def __init__(self, cfg: Optional[SiameseConfig] = None):
         """
         Args:
-            input_shape: Shape (samples, features, channels)
-            embedding_dim: Dimensão do vetor embedding (64-256)
-            learning_rate: Taxa de aprendizado
-            architecture: 'default', 'deep', ou 'light'
+            cfg: SiameseConfig. Se None, usa CFG.siamese global.
         """
-        self.input_shape = input_shape
-        self.embedding_dim = embedding_dim
-        self.learning_rate = learning_rate
-        self.architecture = architecture
+        c = cfg or CFG.siamese
+        self.input_shape    = c.input_shape
+        self.embedding_dim  = c.embedding_dim
+        self.learning_rate  = c.learning_rate
+        self.architecture   = c.architecture
+        self.margin         = c.margin
+        self.model_prefix   = CFG.paths.model_file(c.model_prefix)
 
-        self.encoder: Optional[Model] = None
-        self.siamese_model: Optional[Model] = None
+        # Hiperparâmetros de treino (guardados para uso em train())
+        self._train_cfg = c
+
+        self.encoder:        Optional[Model] = None
+        self.siamese_model:  Optional[Model] = None
         self.history = None
 
         self._build_models()
 
-    def _build_encoder_default(self, inputs: layers.Input) -> layers.Layer:
-        """Arquitetura padrão (balanceada)"""
-        # Bloco 1
-        x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.25)(x)
+    # ------------------------------------------------------------------
+    # BLOCOS DE ENCODER
+    # ------------------------------------------------------------------
 
-        # Bloco 2
-        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    def _conv_block(self, x, filters: int, dropout: float):
+        x = layers.Conv2D(filters, (3, 3), padding='same')(x)
         x = layers.BatchNormalization()(x)
+        x = layers.Activation('relu')(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.25)(x)
+        x = layers.Dropout(dropout)(x)
+        return x
 
-        # Bloco 3
-        x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.3)(x)
+    def _build_encoder_light(self, inputs):
+        """2 blocos convolucionais — mais rápido."""
+        x = self._conv_block(inputs, 32,  dropout=0.20)
+        x = self._conv_block(x,      64,  dropout=0.20)
+        x = layers.Flatten()(x)
+        x = layers.Dense(128, activation='relu')(x)
+        x = layers.Dropout(0.30)(x)
+        return x
 
-        # Dense
+    def _build_encoder_default(self, inputs):
+        """3 blocos convolucionais — balanceado."""
+        x = self._conv_block(inputs, 32,  dropout=0.25)
+        x = self._conv_block(x,      64,  dropout=0.25)
+        x = self._conv_block(x,      128, dropout=0.30)
         x = layers.Flatten()(x)
         x = layers.Dense(256, activation='relu')(x)
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.4)(x)
-
+        x = layers.Dropout(0.40)(x)
         return x
 
-    def _build_encoder_deep(self, inputs: layers.Input) -> layers.Layer:
-        """Arquitetura profunda (mais capacidade)"""
-        # 4 blocos convolucionais
+    def _build_encoder_deep(self, inputs):
+        """4 blocos convolucionais + 2 dense — maior capacidade."""
         x = inputs
         for filters in [32, 64, 128, 256]:
-            x = layers.Conv2D(filters, (3, 3), activation='relu', padding='same')(x)
-            x = layers.BatchNormalization()(x)
-            x = layers.MaxPooling2D((2, 2))(x)
-            x = layers.Dropout(0.25)(x)
-
-        # Dense layers
+            x = self._conv_block(x, filters, dropout=0.25)
         x = layers.Flatten()(x)
         x = layers.Dense(512, activation='relu')(x)
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.4)(x)
+        x = layers.Dropout(0.40)(x)
         x = layers.Dense(256, activation='relu')(x)
-        x = layers.Dropout(0.4)(x)
-
+        x = layers.Dropout(0.40)(x)
         return x
 
-    def _build_encoder_light(self, inputs: layers.Input) -> layers.Layer:
-        """Arquitetura leve (mais rápida)"""
-        # 2 blocos convolucionais
-        x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.2)(x)
-
-        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.2)(x)
-
-        # Dense
-        x = layers.Flatten()(x)
-        x = layers.Dense(128, activation='relu')(x)
-        x = layers.Dropout(0.3)(x)
-
-        return x
+    # ------------------------------------------------------------------
+    # CONSTRUÇÃO DO MODELO
+    # ------------------------------------------------------------------
 
     def _build_models(self):
-        """Constrói encoder e modelo siamês"""
-        print(f"\n{'=' * 70}")
-        print(f"CONSTRUINDO REDE SIAMESA ({self.architecture.upper()})")
-        print(f"{'=' * 70}")
+        sep = "=" * 70
+        print(f"\n{sep}")
+        print(f"CONSTRUINDO REDE SIAMESA  [{self.architecture.upper()}]")
+        print(sep)
 
-        # Input
-        inputs = layers.Input(shape=self.input_shape)
+        # --- Encoder ---
+        inputs = layers.Input(shape=self.input_shape, name='encoder_input')
 
-        # Encoder (baseado na arquitetura escolhida)
-        if self.architecture == 'deep':
-            x = self._build_encoder_deep(inputs)
-        elif self.architecture == 'light':
-            x = self._build_encoder_light(inputs)
-        else:
-            x = self._build_encoder_default(inputs)
+        builders = {
+            'light':   self._build_encoder_light,
+            'deep':    self._build_encoder_deep,
+        }
+        x = builders.get(self.architecture, self._build_encoder_default)(inputs)
 
-        # Embedding layer
-        embeddings = layers.Dense(self.embedding_dim, name='embeddings')(x)
+        # Projeção no espaço de embedding
+        emb = layers.Dense(self.embedding_dim, name='projection')(x)
 
-        # Normalização L2 (importante para distância euclidiana)
-        embeddings = layers.Lambda(
-            lambda x: tf.math.l2_normalize(x, axis=1),
-            name='l2_normalize'
-        )(embeddings)
+        # L2-normalização via camada nativa do Keras (serializável)
+        emb = layers.UnitNormalization(axis=-1, name='l2_norm')(emb)
 
-        # Encoder model
-        self.encoder = Model(inputs=inputs, outputs=embeddings, name='encoder')
+        self.encoder = Model(inputs=inputs, outputs=emb, name='encoder')
 
-        print(f"\n✓ Encoder criado:")
-        print(f"  Input: {self.input_shape}")
-        print(f"  Output: {self.embedding_dim}")
-        print(f"  Parâmetros: {self.encoder.count_params():,}")
+        print(f"\n  Encoder:")
+        print(f"    input  : {self.input_shape}")
+        print(f"    output : ({self.embedding_dim},)  [L2-normalizado]")
+        print(f"    params : {self.encoder.count_params():,}")
 
-        # Modelo Siamês
-        input_left = layers.Input(shape=self.input_shape, name='input_left')
+        # --- Modelo siamês ---
+        input_left  = layers.Input(shape=self.input_shape, name='input_left')
         input_right = layers.Input(shape=self.input_shape, name='input_right')
 
-        # Embeddings (pesos compartilhados)
-        embedding_left = self.encoder(input_left)
-        embedding_right = self.encoder(input_right)
+        emb_left  = self.encoder(input_left)
+        emb_right = self.encoder(input_right)
 
-        # Distância euclidiana
-        distance = layers.Lambda(
-            lambda tensors: tf.sqrt(tf.reduce_sum(tf.square(tensors[0] - tensors[1]), axis=1, keepdims=True)),
-            name='euclidean_distance'
-        )([embedding_left, embedding_right])
-
-        # Similaridade (inverte distância)
-        # Usa sigmoid: quanto menor distância, maior similaridade
-        similarity = layers.Dense(1, activation='sigmoid', name='similarity')(distance)
+        # Distância euclidiana (camada customizada, sem Lambda)
+        distance = EuclideanDistance(name='euclidean_dist')([emb_left, emb_right])
 
         self.siamese_model = Model(
             inputs=[input_left, input_right],
-            outputs=similarity,
+            outputs=distance,
             name='siamese_network'
         )
 
-        # Compile
         self.siamese_model.compile(
             optimizer=optimizers.Adam(learning_rate=self.learning_rate),
-            loss='binary_crossentropy',
-            metrics=[
-                'accuracy',
-                keras.metrics.Precision(name='precision'),
-                keras.metrics.Recall(name='recall'),
-                keras.metrics.AUC(name='auc')
-            ]
+            loss=contrastive_loss(margin=self.margin),
+            metrics=['mae']   # MAE na distância como proxy de monitoramento
         )
 
-        print(f"\n✓ Modelo Siamês criado:")
-        print(f"  Parâmetros totais: {self.siamese_model.count_params():,}")
-        print(f"{'=' * 70}\n")
+        print(f"\n  Siamese model:")
+        print(f"    loss   : contrastive_loss(margin={self.margin})")
+        print(f"    params : {self.siamese_model.count_params():,}")
+        print(f"{sep}\n")
+
+    # ------------------------------------------------------------------
+    # TREINAMENTO
+    # ------------------------------------------------------------------
 
     def train(
-            self,
-            pairs_left: np.ndarray,
-            pairs_right: np.ndarray,
-            labels: np.ndarray,
-            validation_split: float = 0.2,
-            epochs: int = 50,
-            batch_size: int = 32,
-            early_stopping_patience: int = 10,
-            reduce_lr_patience: int = 5,
-            verbose: int = 1
+        self,
+        pairs_left:  np.ndarray,
+        pairs_right: np.ndarray,
+        labels:      np.ndarray,
+        epochs:              Optional[int]   = None,
+        batch_size:          Optional[int]   = None,
+        validation_split:    Optional[float] = None,
+        early_stopping_patience: Optional[int] = None,
+        reduce_lr_patience:      Optional[int] = None,
+        verbose: int = 1
     ) -> keras.callbacks.History:
         """
-        Treina a rede siamesa
+        Treina a rede siamesa com contrastive loss.
 
         Args:
-            pairs_left: Array (n_pairs, *input_shape)
-            pairs_right: Array (n_pairs, *input_shape)
-            labels: Array (n_pairs,) - 1=similar, 0=diferente
-            validation_split: Proporção para validação
-            epochs: Número de épocas
-            batch_size: Tamanho do batch
-            early_stopping_patience: Paciência para early stopping
-            reduce_lr_patience: Paciência para redução de LR
-            verbose: Verbosidade (0, 1, ou 2)
+            pairs_left / pairs_right: Arrays (n_pairs, *input_shape)
+            labels: Array (n_pairs,) — 1 = par similar, 0 = par diferente
+            *: parâmetros opcionais; se None, usa CFG.siamese
 
         Returns:
             History object do Keras
         """
-        print(f"\n{'=' * 70}")
-        print(f"TREINAMENTO")
-        print(f"{'=' * 70}")
-        print(f"Pares: {len(labels)}")
-        print(f"Similar: {np.sum(labels == 1)} ({np.mean(labels == 1) * 100:.1f}%)")
-        print(f"Diferente: {np.sum(labels == 0)} ({np.mean(labels == 0) * 100:.1f}%)")
-        print(f"Epochs: {epochs}")
-        print(f"Batch size: {batch_size}")
-        print(f"Validation split: {validation_split}")
-        print(f"{'=' * 70}\n")
+        c = self._train_cfg
+        epochs       = epochs       or c.epochs
+        batch_size   = batch_size   or c.batch_size
+        val_split    = validation_split or c.validation_split
+        es_patience  = early_stopping_patience or c.early_stopping_patience
+        lr_patience  = reduce_lr_patience      or c.reduce_lr_patience
 
-        # Callbacks
+        sep = "=" * 70
+        print(f"\n{sep}\nTREINAMENTO\n{sep}")
+        print(f"  Pares      : {len(labels)}")
+        print(f"  Similares  : {int(np.sum(labels == 1))} ({np.mean(labels == 1)*100:.1f}%)")
+        print(f"  Diferentes : {int(np.sum(labels == 0))} ({np.mean(labels == 0)*100:.1f}%)")
+        print(f"  Epochs     : {epochs}  |  batch: {batch_size}  |  val: {val_split}")
+        print(sep)
+
+        os.makedirs(os.path.dirname(self.model_prefix) or ".", exist_ok=True)
+
         callback_list = [
             callbacks.EarlyStopping(
                 monitor='val_loss',
-                patience=early_stopping_patience,
+                patience=es_patience,
                 restore_best_weights=True,
                 verbose=1
             ),
             callbacks.ReduceLROnPlateau(
                 monitor='val_loss',
-                factor=0.5,
-                patience=reduce_lr_patience,
-                min_lr=1e-7,
+                factor=c.reduce_lr_factor,
+                patience=lr_patience,
+                min_lr=c.min_lr,
                 verbose=1
             ),
             callbacks.ModelCheckpoint(
-                'best_model.keras',
-                monitor='val_auc',
+                filepath=f"{self.model_prefix}_best.keras",
+                monitor='val_loss',
                 save_best_only=True,
-                mode='max',
+                mode='min',
                 verbose=1
-            )
+            ),
         ]
 
-        # Treina
         self.history = self.siamese_model.fit(
             [pairs_left, pairs_right],
             labels,
-            validation_split=validation_split,
+            validation_split=val_split,
             epochs=epochs,
             batch_size=batch_size,
             callbacks=callback_list,
             verbose=verbose
         )
 
-        print(f"\n{'=' * 70}")
-        print(f"✓ TREINAMENTO CONCLUÍDO")
-        print(f"{'=' * 70}\n")
-
+        print(f"\n{sep}\n✓ TREINAMENTO CONCLUÍDO\n{sep}\n")
         return self.history
 
-    def predict_similarity(
-            self,
-            dataset_left: np.ndarray,
-            dataset_right: np.ndarray
-    ) -> float:
-        """
-        Prediz similaridade entre dois datasets
-
-        Args:
-            dataset_left: Array shape (256, 100, 1)
-            dataset_right: Array shape (256, 100, 1)
-
-        Returns:
-            Similaridade [0, 1] - 1=muito similar, 0=muito diferente
-        """
-        # Adiciona batch dimension se necessário
-        if len(dataset_left.shape) == 3:
-            dataset_left = np.expand_dims(dataset_left, axis=0)
-        if len(dataset_right.shape) == 3:
-            dataset_right = np.expand_dims(dataset_right, axis=0)
-
-        similarity = self.siamese_model.predict(
-            [dataset_left, dataset_right],
-            verbose=0
-        )
-
-        return float(similarity[0][0])
+    # ------------------------------------------------------------------
+    # INFERÊNCIA
+    # ------------------------------------------------------------------
 
     def get_embedding(self, dataset: np.ndarray) -> np.ndarray:
         """
-        Extrai embedding de um dataset
+        Extrai o vetor de embedding de um dataset.
 
         Args:
-            dataset: Array shape (256, 100, 1)
+            dataset: Array (target_samples, target_features, 1)
 
         Returns:
-            Embedding shape (embedding_dim,)
+            Array 1D (embedding_dim,), L2-normalizado
         """
-        if len(dataset.shape) == 3:
-            dataset = np.expand_dims(dataset, axis=0)
+        if dataset.ndim == 3:
+            dataset = np.expand_dims(dataset, axis=0)   # (1, S, F, 1)
+        return self.encoder.predict(dataset, verbose=0)[0]
 
-        embedding = self.encoder.predict(dataset, verbose=0)
-        return embedding[0]
+    def predict_distance(
+        self,
+        dataset_left:  np.ndarray,
+        dataset_right: np.ndarray
+    ) -> float:
+        """
+        Retorna a distância euclidiana entre dois datasets.
+
+        0.0 = idênticos no espaço de embedding.
+        """
+        if dataset_left.ndim  == 3: dataset_left  = dataset_left[np.newaxis]
+        if dataset_right.ndim == 3: dataset_right = dataset_right[np.newaxis]
+
+        dist = self.siamese_model.predict([dataset_left, dataset_right], verbose=0)
+        return float(dist[0][0])
+
+    def predict_similarity(
+        self,
+        dataset_left:  np.ndarray,
+        dataset_right: np.ndarray
+    ) -> float:
+        """
+        Converte distância em similaridade usando exp(-d).
+        Retorna valor em (0, 1]; quanto maior, mais similar.
+        """
+        d = self.predict_distance(dataset_left, dataset_right)
+        return float(np.exp(-d))
 
     def compare_with_multiple(
-            self,
-            query: np.ndarray,
-            references: List[np.ndarray],
-            names: Optional[List[str]] = None
+        self,
+        query:      np.ndarray,
+        references: List[np.ndarray],
+        names:      Optional[List[str]] = None
     ) -> List[Tuple[str, float]]:
         """
-        Compara query com múltiplos datasets de referência
-
-        Args:
-            query: Dataset query
-            references: Lista de datasets de referência
-            names: Nomes dos datasets (opcional)
+        Compara um dataset query com uma lista de referências.
 
         Returns:
-            Lista de (nome, similaridade) ordenada por similaridade
+            Lista de (nome, similaridade) ordenada do mais para o menos similar.
         """
         if names is None:
             names = [f"Dataset_{i}" for i in range(len(references))]
 
-        results = []
-        for name, ref in zip(names, references):
-            sim = self.predict_similarity(query, ref)
-            results.append((name, sim))
+        results = [
+            (name, self.predict_similarity(query, ref))
+            for name, ref in zip(names, references)
+        ]
+        return sorted(results, key=lambda x: x[1], reverse=True)
 
-        # Ordena por similaridade (maior primeiro)
-        results.sort(key=lambda x: x[1], reverse=True)
+    # ------------------------------------------------------------------
+    # SERIALIZAÇÃO
+    # ------------------------------------------------------------------
 
-        return results
+    def save(self):
+        """Salva encoder e modelo completo em CFG.paths.models/."""
+        os.makedirs(os.path.dirname(self.model_prefix) or ".", exist_ok=True)
+        self.encoder.save(f"{self.model_prefix}_encoder.keras")
+        self.siamese_model.save(f"{self.model_prefix}_full.keras")
+        print(f"✓ Modelos salvos em: {self.model_prefix}_*.keras")
 
-    def save(self, filepath: str = 'siamese_model'):
-        """Salva modelos"""
-        self.encoder.save(f'{filepath}_encoder.keras')
-        self.siamese_model.save(f'{filepath}_full.keras')
-        print(f"✓ Modelos salvos: {filepath}_*.keras")
-
-    def load(self, filepath: str = 'siamese_model'):
-        """Carrega modelos"""
-        self.encoder = keras.models.load_model(f'{filepath}_encoder.keras')
-        self.siamese_model = keras.models.load_model(f'{filepath}_full.keras')
-        print(f"✓ Modelos carregados: {filepath}_*.keras")
+    def load(self):
+        """Carrega encoder e modelo completo de CFG.paths.models/."""
+        self.encoder = keras.models.load_model(
+            f"{self.model_prefix}_encoder.keras",
+            custom_objects={"EuclideanDistance": EuclideanDistance}
+        )
+        self.siamese_model = keras.models.load_model(
+            f"{self.model_prefix}_full.keras",
+            custom_objects={
+                "EuclideanDistance": EuclideanDistance,
+                "loss_fn": contrastive_loss(self.margin)
+            }
+        )
+        print(f"✓ Modelos carregados de: {self.model_prefix}_*.keras")
 
     def summary(self):
-        """Mostra resumo dos modelos"""
-        print("\n" + "=" * 70)
-        print("ENCODER")
-        print("=" * 70)
+        print("\n" + "=" * 70 + "\nENCODER\n" + "=" * 70)
         self.encoder.summary()
-
-        print("\n" + "=" * 70)
-        print("SIAMESE MODEL")
-        print("=" * 70)
+        print("\n" + "=" * 70 + "\nSIAMESE MODEL\n" + "=" * 70)
         self.siamese_model.summary()
 
 
@@ -376,91 +406,51 @@ class SiameseNet:
 # ============================================================================
 
 if __name__ == "__main__":
+    from config import CFG, SiameseConfig
+
     print("\n" + "=" * 70)
-    print("TESTE DA REDE SIAMESA V2")
+    print("TESTE DA REDE SIAMESA")
     print("=" * 70)
 
-    # Dados de teste
     np.random.seed(42)
+    n_pairs = 100
+    shape = CFG.siamese.input_shape
 
-    # Simula pares
-    n_pairs = 200
-    pairs_left = np.random.randint(0, 2, size=(n_pairs, 256, 100, 1)).astype(np.float32)
-    pairs_right = np.random.randint(0, 2, size=(n_pairs, 256, 100, 1)).astype(np.float32)
-    labels = np.random.randint(0, 2, size=(n_pairs,)).astype(np.float32)
+    pairs_left  = np.random.randint(0, 2, size=(n_pairs, *shape)).astype(np.float32)
+    pairs_right = np.random.randint(0, 2, size=(n_pairs, *shape)).astype(np.float32)
+    labels      = np.random.randint(0, 2, size=(n_pairs,)).astype(np.float32)
 
-    print(f"\n📊 Dados de teste:")
-    print(f"  Pairs left: {pairs_left.shape}")
-    print(f"  Pairs right: {pairs_right.shape}")
-    print(f"  Labels: {labels.shape}")
+    # ---- Teste 1: arquitetura default ----
+    model = SiameseNet()
+    history = model.train(pairs_left, pairs_right, labels, epochs=2, verbose=0)
 
-    # ========================================================================
-    # TESTE 1: Arquitetura Default
-    # ========================================================================
-    print("\n" + "=" * 70)
-    print("TESTE 1: ARQUITETURA DEFAULT")
-    print("=" * 70)
+    sample = np.random.randint(0, 2, size=shape).astype(np.float32)
+    emb  = model.get_embedding(sample)
+    dist = model.predict_distance(sample, sample)
+    sim  = model.predict_similarity(sample, sample)
 
-    model_default = SiameseNet(
-        input_shape=(256, 100, 1),
-        embedding_dim=128,
-        architecture='default'
-    )
+    print(f"  Embedding shape  : {emb.shape}")
+    print(f"  L2 norm          : {np.linalg.norm(emb):.6f}  (esperado ≈ 1.0)")
+    print(f"  Distância self   : {dist:.6f}  (esperado ≈ 0.0)")
+    print(f"  Similaridade self: {sim:.6f}  (esperado ≈ 1.0)")
 
-    # Treino rápido
-    history = model_default.train(
-        pairs_left, pairs_right, labels,
-        epochs=2,
-        batch_size=32,
-        verbose=0
-    )
+    assert emb.shape == (CFG.siamese.embedding_dim,), "Embedding com shape errado"
+    assert abs(np.linalg.norm(emb) - 1.0) < 1e-5,    "Embedding não está L2-normalizado"
+    assert dist < 0.01,                                "Distância consigo mesmo deve ser ≈ 0"
 
-    # Teste de predição
-    test_left = np.random.randint(0, 2, size=(256, 100, 1)).astype(np.float32)
-    test_right = np.random.randint(0, 2, size=(256, 100, 1)).astype(np.float32)
-
-    similarity = model_default.predict_similarity(test_left, test_right)
-    print(f"✓ Similaridade: {similarity:.4f}")
-
-    embedding = model_default.get_embedding(test_left)
-    print(f"✓ Embedding: shape={embedding.shape}, norm={np.linalg.norm(embedding):.4f}")
-
-    # ========================================================================
-    # TESTE 2: Comparação Múltipla
-    # ========================================================================
-    print("\n" + "=" * 70)
-    print("TESTE 2: COMPARAÇÃO MÚLTIPLA")
-    print("=" * 70)
-
-    query = test_left
-    references = [
-        np.random.randint(0, 2, size=(256, 100, 1)).astype(np.float32)
-        for _ in range(5)
-    ]
-    names = [f"Malware_Type_{i}" for i in range(5)]
-
-    results = model_default.compare_with_multiple(query, references, names)
-
-    print("\n✓ Ranking de similaridade:")
+    # ---- Teste 2: compare_with_multiple ----
+    refs  = [np.random.randint(0, 2, size=shape).astype(np.float32) for _ in range(4)]
+    names = [f"Ref_{i}" for i in range(4)]
+    results = model.compare_with_multiple(sample, refs, names)
+    print(f"\n  Ranking (compare_with_multiple):")
     for name, score in results:
-        print(f"  {name}: {score:.4f}")
+        print(f"    {name}: {score:.4f}")
 
-    # ========================================================================
-    # TESTE 3: Arquiteturas Alternativas
-    # ========================================================================
-    print("\n" + "=" * 70)
-    print("TESTE 3: COMPARAÇÃO DE ARQUITETURAS")
-    print("=" * 70)
-
+    # ---- Teste 3: arquiteturas ----
     for arch in ['light', 'default', 'deep']:
-        model = SiameseNet(
-            input_shape=(256, 100, 1),
-            embedding_dim=128,
-            architecture=arch
-        )
-        print(f"\n{arch.upper()}:")
-        print(f"  Parâmetros: {model.siamese_model.count_params():,}")
+        from config import SiameseConfig
+        cfg_tmp = SiameseConfig(architecture=arch)
+        m = SiameseNet(cfg=cfg_tmp)
+        print(f"\n  [{arch:7s}] params: {m.siamese_model.count_params():,}")
 
-    print("\n" + "=" * 70)
-    print("✓ TODOS OS TESTES PASSARAM!")
-    print("=" * 70 + "\n")
+    print("\n✓ TODOS OS TESTES PASSARAM!\n")
