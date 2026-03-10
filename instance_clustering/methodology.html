@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clusterização de Datasets de Malware Android</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #080b14;
+    --bg2:       #0d1120;
+    --bg3:       #111827;
+    --border:    #1e2d4a;
+    --accent:    #4fc3f7;
+    --accent2:   #ef5350;
+    --accent3:   #66bb6a;
+    --accent4:   #ffa726;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --mono:      'DM Mono', monospace;
+    --display:   'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.75;
+    overflow-x: hidden;
+  }
+
+  /* ── GRID NOISE BACKGROUND ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(79,195,247,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,195,247,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(8,11,20,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 52px;
+    display: flex; align-items: center; gap: 2rem;
+  }
+  nav .logo {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    transition: color .2s;
+  }
+  nav a:hover { color: var(--text); }
+
+  /* ── WRAPPER ── */
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 2rem;
+    position: relative; z-index: 1;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    justify-content: center;
+    padding-top: 52px;
+  }
+  .hero-tag {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+    opacity: 0;
+    animation: fadeUp .6s .2s forwards;
+  }
+  .hero h1 {
+    font-family: var(--display);
+    font-size: clamp(2rem, 5vw, 3.8rem);
+    font-weight: 800;
+    line-height: 1.1;
+    color: white;
+    opacity: 0;
+    animation: fadeUp .6s .35s forwards;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .hero-sub {
+    margin-top: 1.5rem;
+    max-width: 560px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.8;
+    opacity: 0;
+    animation: fadeUp .6s .5s forwards;
+  }
+  .hero-badges {
+    margin-top: 2rem;
+    display: flex; flex-wrap: wrap; gap: .6rem;
+    opacity: 0;
+    animation: fadeUp .6s .65s forwards;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .3rem .8rem;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    font-size: 11px;
+    letter-spacing: .06em;
+    color: var(--muted);
+    background: var(--bg2);
+  }
+  .badge span { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+  /* ── SECTION ── */
+  section {
+    padding: 6rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .section-label {
+    font-size: 10px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: .75rem;
+  }
+  h2 {
+    font-family: var(--display);
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 700;
+    color: white;
+    margin-bottom: 1.5rem;
+  }
+  p { color: var(--muted); margin-bottom: 1rem; }
+  p strong { color: var(--text); font-weight: 500; }
+
+  /* ── PIPELINE ── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 2.5rem 0;
+    position: relative;
+  }
+  .pipeline::before {
+    content: '';
+    position: absolute;
+    left: 20px; top: 0; bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--accent), var(--accent2), var(--accent3));
+    opacity: .3;
+  }
+  .step {
+    display: flex; gap: 1.5rem;
+    padding: 1.5rem 0 1.5rem 0;
+    opacity: 0;
+    transform: translateX(-16px);
+    transition: opacity .5s, transform .5s;
+  }
+  .step.visible { opacity: 1; transform: none; }
+  .step-num {
+    flex-shrink: 0;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--accent);
+    position: relative; z-index: 1;
+  }
+  .step-body h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 15px;
+    color: white;
+    margin-bottom: .4rem;
+  }
+  .step-body p { margin: 0; font-size: 13px; }
+
+  /* ── CODE BLOCK ── */
+  .code-block {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #94a3b8;
+    border-radius: 0 4px 4px 0;
+  }
+  .code-block .k { color: var(--accent2); }
+  .code-block .f { color: var(--accent); }
+  .code-block .s { color: var(--accent3); }
+  .code-block .c { color: #475569; font-style: italic; }
+  .code-block .n { color: var(--accent4); }
+
+  /* ── METRICS GRID ── */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin: 2rem 0;
+  }
+  .metric-card {
+    background: var(--bg2);
+    padding: 1.5rem;
+  }
+  .metric-card .val {
+    font-family: var(--display);
+    font-size: 2rem;
+    font-weight: 800;
+    color: white;
+    line-height: 1;
+    margin-bottom: .4rem;
+  }
+  .metric-card .val em {
+    font-style: normal;
+    font-size: 1rem;
+    color: var(--accent);
+  }
+  .metric-card .lbl {
+    font-size: 11px;
+    letter-spacing: .1em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* ── DATASET TABLE ── */
+  .ds-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+    font-size: 12px;
+  }
+  .ds-table th {
+    text-align: left;
+    padding: .6rem 1rem;
+    background: var(--bg2);
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .ds-table td {
+    padding: .7rem 1rem;
+    border-bottom: 1px solid rgba(30,45,74,.5);
+    color: var(--text);
+    vertical-align: middle;
+  }
+  .ds-table tr:hover td { background: rgba(79,195,247,.03); }
+  .ds-table .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: .5rem;
+    vertical-align: middle;
+  }
+  .c0 { background: #4fc3f7; }
+  .c1 { background: #ef5350; }
+
+  /* ── CALLOUT ── */
+  .callout {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent4);
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+    font-size: 13px;
+    color: var(--muted);
+    border-radius: 0 4px 4px 0;
+  }
+  .callout strong { color: var(--accent4); }
+
+  /* ── FINDINGS ── */
+  .finding {
+    display: grid;
+    grid-template-columns: 3rem 1fr;
+    gap: 1rem;
+    padding: 1.25rem 0;
+    border-bottom: 1px solid rgba(30,45,74,.5);
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity .4s, transform .4s;
+  }
+  .finding.visible { opacity: 1; transform: none; }
+  .finding-icon {
+    font-size: 1.4rem;
+    line-height: 1;
+    padding-top: .1rem;
+  }
+  .finding h4 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 14px;
+    color: white;
+    margin-bottom: .3rem;
+  }
+  .finding p { font-size: 12.5px; margin: 0; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 3rem 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: .08em;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">MalwareClustering</span>
+  <a href="#objetivo">Objetivo</a>
+  <a href="#metodologia">Metodologia</a>
+  <a href="#visualizacao">Visualização</a>
+  <a href="#resultados">Resultados</a>
+</nav>
+
+<!-- HERO -->
+<div class="wrap">
+  <div class="hero">
+    <div class="hero-tag">Pesquisa · Malware Android · Análise de Distribuição</div>
+    <h1>Clusterização de Datasets<br>de <em>Malware Android</em><br>via Instâncias</h1>
+    <p class="hero-sub">
+      Uma abordagem baseada na distribuição das instâncias individuais para medir
+      similaridade entre datasets heterogêneos de detecção de malware Android,
+      sem depender de alinhamento de features.
+    </p>
+    <div class="hero-badges">
+      <span class="badge"><span style="background:#4fc3f7"></span> Python · scikit-learn</span>
+      <span class="badge"><span style="background:#ef5350"></span> MMD · Wasserstein</span>
+      <span class="badge"><span style="background:#66bb6a"></span> t-SNE · UMAP</span>
+      <span class="badge"><span style="background:#ffa726"></span> 11 datasets</span>
+    </div>
+  </div>
+  <!-- METODOLOGIA -->
+  <section id="metodologia">
+    <div class="section-label">// 02 — Metodologia</div>
+    <h2>Pipeline de análise</h2>
+    <p>
+      O desafio central é que os datasets possuem <strong>espaços de features incompatíveis</strong>
+      — alguns usam permissões Android brutas, outros usam métricas de grafo de API calls,
+      outros usam features estatísticas de tráfego. A abordagem contorna isso operando
+      no nível das instâncias, não das features.
+    </p>
+
+    <div class="pipeline">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Carregamento e limpeza</h3>
+          <p>
+            Cada CSV é carregado independentemente. Colunas constantes (variância zero)
+            são removidas pois não carregam informação discriminativa. A coluna
+            <code>class</code> é separada e não entra na análise de distribuição.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>PCA independente por dataset → espaço latente comum</h3>
+          <p>
+            Cada dataset é projetado para um espaço latente de <strong>20 dimensões</strong>
+            via PCA, independentemente dos outros. Isso resolve o problema de features
+            incompatíveis: não tentamos alinhar colunas, mas capturamos os
+            <em>padrões de covariância</em> das instâncias de cada dataset.
+          </p>
+          <div class="code-block">
+<span class="c"># Para cada dataset individualmente:</span>
+<span class="k">pca</span> = <span class="f">PCA</span>(n_components=<span class="n">20</span>, random_state=<span class="n">42</span>)
+X_latent = pca.<span class="f">fit_transform</span>(X_original)
+<span class="c"># X_original: (n_samples, n_features_orig)  ex: (1000, 4273)</span>
+<span class="c"># X_latent:   (n_samples, 20)               ← espaço comparável</span>
+          </div>
+          <p>
+            A intuição é que dois datasets com distribuições similares terão estruturas
+            de covariância similares, mesmo com nomes de features diferentes.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>MMD — Maximum Mean Discrepancy</h3>
+          <p>
+            Para cada par de datasets, calculamos o <strong>MMD</strong> entre as distribuições
+            das instâncias no espaço latente. O MMD mede o quanto duas distribuições
+            diferem usando um kernel RBF — retorna 0 quando são idênticas.
+          </p>
+          <div class="code-block">
+<span class="k">def</span> <span class="f">mmd</span>(X, Y, gamma=<span class="n">1.0</span>):
+    XX = <span class="f">rbf_kernel</span>(X, X, gamma)   <span class="c"># similaridade interna A</span>
+    YY = <span class="f">rbf_kernel</span>(Y, Y, gamma)   <span class="c"># similaridade interna B</span>
+    XY = <span class="f">rbf_kernel</span>(X, Y, gamma)   <span class="c"># similaridade cruzada</span>
+    <span class="k">return</span> XX.mean() + YY.mean() - <span class="n">2</span> * XY.mean()
+<span class="c">
+# Resultado: matriz D de shape (11, 11) com todas as distâncias</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Clustering hierárquico sobre a matriz MMD</h3>
+          <p>
+            A matriz de distâncias MMD 11×11 é usada diretamente pelo
+            <strong>AgglomerativeClustering</strong> com linkage <em>average</em>.
+            O número de clusters é escolhido automaticamente testando k=2..8 e
+            maximizando o <strong>Silhouette Score</strong>.
+          </p>
+          <div class="code-block">
+<span class="k">for</span> k <span class="k">in</span> <span class="f">range</span>(<span class="n">2</span>, <span class="n">9</span>):
+    labels = <span class="f">AgglomerativeClustering</span>(
+        n_clusters=k, metric=<span class="s">'precomputed'</span>, linkage=<span class="s">'average'</span>
+    ).<span class="f">fit_predict</span>(D_mmd)
+    score = <span class="f">silhouette_score</span>(D_mmd, labels, metric=<span class="s">'precomputed'</span>)
+
+<span class="c"># Melhor k = 2  →  Silhouette = 0.5847</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Visualização: t-SNE das instâncias</h3>
+          <p>
+            Para visualizar, sub-amostramos ~40 instâncias por dataset e projetamos
+            todas juntas para 2D via <strong>t-SNE</strong> (com PCA como inicialização).
+            Cada ponto é uma instância individual (um app Android). A cor indica
+            o cluster do dataset ao qual a instância pertence.
+            Os <strong>labels com nomes</strong> são posicionados no centroide da nuvem
+            de cada dataset no espaço 2D.
+          </p>
+        </div>
+      </div>
+
+    </div><!-- /pipeline -->
+
+    <div class="callout">
+      <strong>Nota sobre features heterogêneas:</strong> datasets como
+      <code>defensedroid_apicalls_*</code> têm 4000–6000 features de métricas de grafo,
+      enquanto <code>drebin215</code> tem 215 permissões estáticas. O PCA independente
+      garante que ambos sejam representados em 20 dimensões antes da comparação,
+      tornando a comparação válida independentemente do tipo de feature original.
+    </div>
+  </section>
+
+  <!-- VISUALIZAÇÃO -->
+  <section id="visualizacao">
+    <div class="section-label">// 03 — Visualização</div>
+    <h2>Como ler o gráfico t-SNE</h2>
+
+    <div class="finding">
+      <div class="finding-icon">🔵</div>
+      <div>
+        <h4>Pontos individuais = instâncias (apps Android)</h4>
+        <p>Cada ponto representa um aplicativo de um dataset. São ~40 amostras por dataset, escolhidas aleatoriamente. A cor indica o cluster do dataset ao qual o app pertence — não é uma propriedade do app individual.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-icon">🏷️</div>
+      <div>
+        <h4>Labels = centroide da nuvem de cada dataset</h4>
+        <p>O nome de cada dataset é posicionado na média (x̄, ȳ) de todas as suas instâncias no espaço 2D. Representa o "ponto central" de comportamento daquele dataset.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-icon">🎨</div>
+      <div>
+        <h4>Cor = cluster do dataset (não da instância)</h4>
+        <p>O clustering foi feito no nível de datasets via MMD. Todas as instâncias de <code>drebin215</code> são azuis porque o dataset todo foi atribuído ao Cluster 0. O t-SNE apenas projeta as instâncias — a cor é herdada do resultado do clustering.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-icon">📏</div>
+      <div>
+        <h4>Distância no plano ≠ distância MMD</h4>
+        <p>O t-SNE preserva estrutura local mas distorce distâncias globais. Para comparações quantitativas precisas, use o heatmap de distâncias MMD. O t-SNE serve para inspeção visual de quais instâncias "se misturam" entre datasets.</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- RESULTADOS -->
+  <section id="resultados">
+    <div class="section-label">// 04 — Resultados</div>
+    <h2>Clusters encontrados</h2>
+
+    <table class="ds-table">
+      <thead>
+        <tr>
+          <th>Dataset</th>
+          <th>Tipo de feature</th>
+          <th>Cluster</th>
+          <th>MMD médio</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="dot c0"></span>rfe_adroit</td><td>Permissões estáticas</td><td>C0</td><td>~0.12</td></tr>
+        <tr><td><span class="dot c0"></span>rfe_defensedroid_apicalls_closeness</td><td>Grafo API — closeness</td><td>C0</td><td>~0.08</td></tr>
+        <tr><td><span class="dot c0"></span>rfe_defensedroid_apicalls_degree</td><td>Grafo API — degree</td><td>C0</td><td>~0.07</td></tr>
+        <tr><td><span class="dot c0"></span>rfe_defensedroid_apicalls_katz</td><td>Grafo API — katz</td><td>C0</td><td>~0.08</td></tr>
+        <tr><td><span class="dot c0"></span>rfe_drebin215</td><td>Permissões estáticas</td><td>C0</td><td>~0.08</td></tr>
+        <tr><td><span class="dot c0"></span>semidroid_android_permissions</td><td>Permissões estáticas</td><td>C0</td><td>~0.13</td></tr>
+        <tr><td><span class="dot c0"></span>semidroid_defensedroid_prs</td><td>Análise estática mista</td><td>C0</td><td>~0.08</td></tr>
+        <tr><td><span class="dot c1"></span>statistical_androcrawl</td><td>Features de rede/tráfego</td><td>C1</td><td>~0.38</td></tr>
+        <tr><td><span class="dot c0"></span>statistical_kronodroid_emulator</td><td>Comportamento dinâmico</td><td>C0</td><td>~0.10</td></tr>
+        <tr><td><span class="dot c0"></span>statistical_kronodroid_real_device</td><td>Comportamento dinâmico</td><td>C0</td><td>~0.10</td></tr>
+        <tr><td><span class="dot c1"></span>statistical_mh100k</td><td>Features estatísticas</td><td>C1</td><td>~0.37</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="margin-top:3rem">Principais achados</h2>
+
+    <div class="finding">
+      <div class="finding-icon">🔴</div>
+      <div>
+        <h4>stat_androcrawl e stat_mh100k são outliers</h4>
+        <p>Com MMD médio acima de 0.35 para todos os outros datasets e o maior valor do experimento (MMD=0.602 entre si), esses dois datasets capturam comportamentos de malware fundamentalmente diferentes dos demais. <code>androcrawl</code> usa features de tráfego de rede enquanto <code>mh100k</code> usa features estatísticas de larga escala.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-icon">🔵</div>
+      <div>
+        <h4>Defensedroid apicalls formam um subgrupo coeso</h4>
+        <p>As três variantes de centralidade de grafo (<em>closeness</em>, <em>degree</em>, <em>katz</em>) têm MMD entre si de apenas 0.030–0.082 — as menores distâncias do experimento. São praticamente intercambiáveis do ponto de vista da distribuição de instâncias.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-icon">🟡</div>
+      <div>
+        <h4>Kronodroid emulator ≈ real device</h4>
+        <p>MMD=0.058 entre as duas versões do KronoDroid indica que a distribuição de comportamento de malware é quase idêntica entre emulador e dispositivo real — o que é positivo para validade ecológica de experimentos em emulador.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-icon">⚠️</div>
+      <div>
+        <h4>Silhouette=0.58 — estrutura real mas não perfeita</h4>
+        <p>Um score acima de 0.5 indica separação genuína. O fato de k=2 ser ótimo (e não k=3 ou k=4) sugere que a principal variação entre esses datasets é uma única dimensão: features de análise estática/dinâmica vs. features de rede/estatísticas.</p>
+      </div>
+    </div>
+
+  </section>
+
+</div><!-- /wrap -->
+
+<footer>
+  <div class="wrap">
+    Clusterização de Datasets de Malware Android via Distribuição de Instâncias &nbsp;·&nbsp;
+    PCA + MMD + Agglomerative Clustering + t-SNE
+  </div>
+</footer>
+
+<script>
+  // Intersection Observer para animações de entrada
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((e, i) => {
+      if (e.isIntersecting) {
+        setTimeout(() => e.target.classList.add('visible'), i * 80);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.step, .finding').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

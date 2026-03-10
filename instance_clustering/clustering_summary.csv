@@ -1,0 +1,12 @@
+Dataset,Cluster
+rfe_adroit,0
+rfe_defensedroid_apicalls_closeness,0
+rfe_defensedroid_apicalls_degree,0
+rfe_defensedroid_apicalls_katz,0
+rfe_drebin215,0
+semidroid_android_permissions,0
+semidroid_defensedroid_prs,0
+statistical_androcrawl,0
+statistical_kronodroid_emulator,0
+statistical_kronodroid_real_device,0
+statistical_mh100k,1
